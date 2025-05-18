@@ -1,0 +1,4 @@
+Commando Forest: A thrilling 2D retro-style shooting game set in a lush Singapore forest. As a commando, you battle enemies parachuting from a helicopter, dodging their attacks while firing bullets (Spacebar) and moving (Arrow Keys). 
+The dynamic environment features swaying grass, scrolling trees, drifting clouds, and periodic rain, with background helicopters adding depth. Earn ranks (CPL, 3SG, SSG) by scoring kills, track high scores, and aim for victory (1500 points) or survive against 10 missed enemies. Pause (P), restart (A), or quit (Q) anytime. 
+Built with HTML5 Canvas and JavaScript, it’s a nostalgic yet immersive experience crafted by redstar19 in May 2025.
+This description highlights the game’s core mechanics, retro aesthetic, and unique elements (forest, rain, helicopters) while keeping it concise.
