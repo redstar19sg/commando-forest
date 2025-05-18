@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Commando Forest</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      margin: 20px 0 10px;
+      color: #ffffff;
+      font-family: 'Press Start 2P', cursive;
+      font-size: 36px;
+    }
+    canvas {
+      border: 4px solid #000;
+      background-color: #87CEEB;
+    }
+    footer {
+      margin: 10px 0;
+      font-size: 14px;
+      color: #ffffff;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Commando Forest</h1>
+  <canvas id="game" width="1000" height="500"></canvas>
+  <footer>
+    Spacebar to Fire, Move Left & Right Arrow Key, A to Start New Game, P to Pause Game, Q to Quit Game<br>
+    Created by redstar19. Singapore · May 2025<br>
+  </footer>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    let bullets = [], enemies = [], trees = [], grass = [], explosions = [];
+    let clouds = createClouds();
+    let score = 0, highScores = [], passedEnemies = 0, gameOver = false, paused = false, victory = false;
+    let startTime = Date.now();
+    let rankPromotions = [
+      { score: 350, message: "You made 35 kills, new Rank CPL!", time: null, displayed: false },
+      { score: 500, message: "Promoted to 3SG for 50 kills!", time: null, displayed: false },
+      { score: 850, message: "For 85 kills. Your new rank is SSG!", time: null, displayed: false }
+    ];
+    let rain = { active: false, startTime: null, duration: 0, drops: [], nextRain: Date.now() + 20000 };
+
+    const groundY = canvas.height - 60;
+
+    const commando = {
+      x: 100, y: groundY - 32,
+      width: 14, height: 32,
+      color: "darkgreen", dx: 5, direction: "right",
+      health: 3, maxHealth: 3
+    };
+
+    const helicopter = {
+      x: 0, y: 30,
+      width: 100, height: 40,
+      dx: 2
+    };
+
+    const backgroundHelicopters = [
+      {
+        x: 300, y: 50,
+        width: 60, height: 24,
+        dx: 1.5,
+        scale: 0.6
+      },
+      {
+        x: 600, y: 70,
+        width: 60, height: 24,
+        dx: 1.8,
+        scale: 0.6
+      }
+    ];
+
+    let keys = {};
+    document.addEventListener("keydown", e => {
+      keys[e.key] = true;
+      if (e.key.toLowerCase() === "q") gameOver = true;
+      if (e.key.toLowerCase() === "p") paused = !paused;
+      if (e.key === " ") shoot();
+      if (e.key.toLowerCase() === "a" && gameOver) resetGame();
+    });
+    document.addEventListener("keyup", e => keys[e.key] = false);
+
+    function shoot() {
+      if (commando.direction === "right") {
+        bullets.push({
+          x: commando.x + commando.width,
+          y: commando.y + commando.height / 2 - 1,
+          width: 6,
+          height: 2,
+          speed: 6
+        });
+      } else {
+        bullets.push({
+          x: commando.x - 6,
+          y: commando.y + commando.height / 2 - 1,
+          width: 6,
+          height: 2,
+          speed: -6
+        });
+      }
+    }
+
+    function drawSky() {
+      ctx.fillStyle = "#87CEEB";
+      ctx.fillRect(0, 0, canvas.width, groundY);
+
+      ctx.fillStyle = "white";
+      clouds.forEach(cloud => {
+        cloud.puffs.forEach(puff => {
+          ctx.beginPath();
+          ctx.arc(cloud.x + puff.x, cloud.y + puff.y, puff.radius, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        cloud.x -= cloud.speed;
+        if (cloud.x + cloud.maxWidth < 0) {
+          cloud.x = canvas.width + Math.random() * 100;
+          cloud.y = Math.random() * 100 + 20;
+          cloud.puffs = createCloudPuffs();
+          cloud.maxWidth = Math.max(...cloud.puffs.map(p => p.x + p.radius));
+        }
+      });
+    }
+
+    function createCloudPuffs() {
+      const puffCount = 2 + Math.floor(Math.random() * 4);
+      const puffs = [];
+      let currentX = 0;
+      for (let i = 0; i < puffCount; i++) {
+        const radius = 25 + Math.random() * 25;
+        const offsetY = (Math.random() - 0.5) * 30;
+        puffs.push({
+          x: currentX,
+          y: offsetY,
+          radius: radius
+        });
+        currentX += radius * (0.8 + Math.random() * 0.4);
+      }
+      return puffs;
+    }
+
+    function createClouds() {
+      let cloudList = [];
+      for (let i = 0; i < 5; i++) {
+        const puffs = createCloudPuffs();
+        cloudList.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * 100 + 20,
+          speed: 0.03 + Math.random() * 0.07,
+          puffs: puffs,
+          maxWidth: Math.max(...puffs.map(p => p.x + p.radius))
+        });
+      }
+      return cloudList;
+    }
+
+    function createRain() {
+      let drops = [];
+      for (let i = 0; i < 150; i++) {
+        drops.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          length: 10 + Math.random() * 10,
+          speed: 5 + Math.random() * 5
+        });
+      }
+      return drops;
+    }
+
+    function drawRain() {
+      if (!rain.active) return;
+      ctx.strokeStyle = "rgba(0, 150, 255, 0.6)";
+      ctx.lineWidth = 1;
+      rain.drops.forEach(drop => {
+        ctx.beginPath();
+        ctx.moveTo(drop.x, drop.y);
+        ctx.lineTo(drop.x - drop.length * 0.7, drop.y + drop.length * 0.7);
+        ctx.stroke();
+      });
+    }
+
+    function drawCommando() {
+      ctx.fillStyle = "#2F4F4F";
+      ctx.beginPath();
+      ctx.arc(commando.x + commando.width / 2, commando.y, 7, Math.PI, 0);
+      ctx.fill();
+
+      ctx.fillStyle = "#556B2F";
+      ctx.fillRect(commando.x, commando.y + 7, commando.width, commando.height - 12);
+      ctx.fillStyle = "#3C4F2F";
+      ctx.fillRect(commando.x + 2, commando.y + 10, commando.width - 4, commando.height - 15);
+
+      ctx.fillStyle = "#556B2F";
+      ctx.fillRect(commando.direction === "right" ? commando.x + commando.width : commando.x - 4, commando.y + 10, 4, 10);
+
+      ctx.fillStyle = "#3C4F2F";
+      ctx.fillRect(commando.x + 2, commando.y + commando.height - 5, 4, 5);
+      ctx.fillRect(commando.x + 8, commando.y + commando.height - 5, 4, 5);
+
+      ctx.fillStyle = "white";
+      ctx.fillRect(commando.x + 4, commando.y - 2, 2, 2);
+      ctx.fillRect(commando.x + 8, commando.y - 2, 2, 2);
+      ctx.fillStyle = "black";
+      ctx.fillRect(commando.x + 5, commando.y - 1, 1, 1);
+      ctx.fillRect(commando.x + 9, commando.y - 1, 1, 1);
+
+      ctx.fillStyle = "black";
+      ctx.fillRect(commando.direction === "right" ? commando.x + commando.width : commando.x - 6, commando.y + 12, 6, 3);
+    }
+
+    function drawHelicopter(heli, scale = 1) {
+      ctx.save();
+      ctx.scale(scale, scale);
+      const x = heli.x / scale;
+      const y = heli.y / scale;
+
+      ctx.fillStyle = "#6B6B6B";
+      ctx.beginPath();
+      ctx.moveTo(x + 12, y + 32);
+      ctx.lineTo(x + 25, y + 12);
+      ctx.lineTo(x + 75, y + 12);
+      ctx.lineTo(x + 88, y + 32);
+      ctx.lineTo(x + 75, y + 38);
+      ctx.lineTo(x + 25, y + 38);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#1E90FF";
+      ctx.fillRect(x + 20, y + 15, 20, 12);
+
+      ctx.fillStyle = "#6B6B6B";
+      ctx.fillRect(x + 88, y + 25, 25, 6);
+      ctx.fillStyle = "black";
+      ctx.fillRect(x + 113, y + 18, 2, 12);
+
+      ctx.fillStyle = "black";
+      ctx.fillRect(x + 10, y + 5, 80, 3);
+
+      ctx.fillStyle = "#333";
+      ctx.fillRect(x + 25, y + 38, 6, 6);
+      ctx.fillRect(x + 69, y + 38, 6, 6);
+      ctx.fillRect(x + 31, y + 44, 38, 2);
+      ctx.restore();
+    }
+
+    function drawEnemy(enemy) {
+      if (!enemy.grounded) {
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(enemy.x + 5, enemy.y - 25, 20, 0, Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = "black";
+        ctx.beginPath();
+        ctx.moveTo(enemy.x - 5, enemy.y - 25);
+        ctx.lineTo(enemy.x - 5, enemy.y);
+        ctx.moveTo(enemy.x + 15, enemy.y - 25);
+        ctx.lineTo(enemy.x + 15, enemy.y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "#4A4A4A";
+      ctx.beginPath();
+      ctx.arc(enemy.x + 5, enemy.y, 6, Math.PI, 0);
+      ctx.fill();
+
+      ctx.fillStyle = "#8B0000";
+      ctx.fillRect(enemy.x, enemy.y + 6, enemy.width, enemy.height - 12);
+      ctx.fillStyle = "#6B0000";
+      ctx.fillRect(enemy.x + 2, enemy.y + 8, enemy.width - 4, enemy.height - 14);
+
+      ctx.fillStyle = "black";
+      ctx.fillRect(enemy.x, enemy.y + enemy.height - 12, enemy.width, 2);
+
+      ctx.fillStyle = "black";
+      ctx.fillRect(enemy.x + 1, enemy.y + enemy.height - 5, 4, 5);
+      ctx.fillRect(enemy.x + 5, enemy.y + enemy.height - 5, 4, 5);
+
+      ctx.fillStyle = "black";
+      ctx.fillRect(enemy.x - 5, enemy.y + 10, 5, 2);
+    }
+
+    function drawGround() {
+      ctx.fillStyle = "green";
+      ctx.fillRect(0, groundY, canvas.width, 60);
+
+      grass.forEach(g => {
+        ctx.fillStyle = `hsl(${100 + Math.random() * 20}, 50%, 40%)`;
+        ctx.beginPath();
+        const sway = Math.sin(Date.now() * 0.002 + g.x * 0.01) * 2;
+        ctx.moveTo(g.x + sway, groundY);
+        ctx.quadraticCurveTo(g.x + sway + g.width / 2, groundY - g.height / 2, g.x + sway + g.width, groundY);
+        ctx.fill();
+      });
+    }
+
+    function createGrass() {
+      let g = [];
+      for (let i = 0; i < 200; i++) {
+        g.push({
+          x: i * 5 + (Math.random() * 5),
+          height: 15 + Math.random() * 15,
+          width: 2 + Math.random() * 2
+        });
+      }
+      return g;
+    }
+
+    function drawTrees() {
+      trees.forEach(tree => {
+        ctx.fillStyle = "#8B4513";
+        ctx.fillRect(tree.x - tree.trunkWidth / 2, groundY - tree.height, tree.trunkWidth, tree.height);
+
+        ctx.fillStyle = tree.foliageColor;
+        for (let i = 0; i < tree.branchCount; i++) {
+          const y = groundY - tree.height - i * tree.branchSpacing;
+          const width = tree.branchWidths[i];
+          ctx.beginPath();
+          const bottomYLeft = i === 0 ? tree.bottomYLeft : 0;
+          const bottomYRight = i === 0 ? tree.bottomYRight : 0;
+          ctx.moveTo(tree.x - width / 2, y + 15 + bottomYLeft);
+          ctx.quadraticCurveTo(tree.x, y - 25, tree.x + width / 2, y + 15 + bottomYRight);
+          ctx.fill();
+        }
+      });
+    }
+
+    function createTrees() {
+      let t = [];
+      for (let i = 0; i < 20; i++) {
+        const height = 70 + Math.random() * 70;
+        const branchCount = 8 + Math.floor(Math.random() * 4);
+        const branchWidths = [];
+        for (let j = 0; j < branchCount; j++) {
+          branchWidths.push(60 + Math.random() * 40);
+        }
+        t.push({
+          x: 30 + i * 50,
+          height: height,
+          trunkWidth: 12 + Math.random() * 8,
+          branchCount: branchCount,
+          branchWidths: branchWidths,
+          branchSpacing: height / (branchCount * 1.5),
+          foliageColor: `hsl(${100 + Math.random() * 40}, ${40 + Math.random() * 20}%, ${30 + Math.random() * 30}%)`,
+          bottomYLeft: -5 + Math.random() * 10,
+          bottomYRight: -5 + Math.random() * 10
+        });
+      }
+      return t;
+    }
+
+    function drawBullets() {
+      ctx.fillStyle = "yellow";
+      bullets.forEach(b => ctx.fillRect(b.x, b.y, b.width, b.height));
+    }
+
+    function drawEnemies() {
+      enemies.forEach(drawEnemy);
+    }
+
+    function drawExplosions() {
+      explosions = explosions.filter(e => Date.now() - e.time < 300);
+      explosions.forEach(e => {
+        ctx.beginPath();
+        ctx.fillStyle = "white";
+        ctx.arc(e.x, e.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawScore() {
+      ctx.fillStyle = "black";
+      ctx.font = "16px monospace";
+      ctx.fillText(`Score: ${score} | Missed: ${passedEnemies}`, 10, 20);
+      for (let i = 0; i < commando.maxHealth; i++) {
+        ctx.fillStyle = i < commando.health ? "green" : "gray";
+        ctx.fillRect(10 + i * 25, 30, 20, 10);
+      }
+    }
+
+    function drawRankPromotions() {
+      rankPromotions.forEach(promo => {
+        if (!promo.displayed && score >= promo.score) {
+          promo.time = Date.now();
+          promo.displayed = true;
+        }
+        if (promo.time && Date.now() - promo.time < 5000) {
+          ctx.fillStyle = "black";
+          ctx.font = "24px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(promo.message, canvas.width / 2, canvas.height / 2 - 30);
+          ctx.textAlign = "left";
+        }
+      });
+    }
+
+    function drawInstructions() {
+      const timeSinceStart = (Date.now() - startTime) / 1000;
+      if (timeSinceStart < 7) {
+        ctx.fillStyle = "black";
+        ctx.fillText("←/→ Move   SPACE Shoot   Q Quit   A Restart   P Pause", 300, 50);
+      }
+    }
+
+    function drawPaused() {
+      ctx.fillStyle = "black";
+      ctx.font = "24px monospace";
+      ctx.fillText("Paused", canvas.width / 2 - 50, canvas.height / 2);
+      ctx.fillText("Press 'P' to resume", canvas.width / 2 - 100, canvas.height / 2 + 30);
+    }
+
+    function drawHighScores() {
+      ctx.fillStyle = "black";
+      ctx.font = "30px monospace"; // Increased font size for Game Over
+      ctx.fillText(victory ? "The enemy gave up. Game Over!" : "Game Over", canvas.width / 2 - 40, canvas.height / 2 - 100); // Aligned above Score
+      ctx.font = "24px monospace"; // Reset for other text
+      ctx.fillText(`Score: ${score}`, canvas.width / 2 - 40, canvas.height / 2 - 70);
+      highScores.push(score);
+      highScores.sort((a, b) => b - a);
+      highScores = highScores.slice(0, 5);
+      try {
+        localStorage.setItem("highScores", JSON.stringify(highScores));
+      } catch (e) {
+        console.warn("Cannot save high scores to localStorage:", e);
+      }
+      ctx.fillText("High Scores:", canvas.width / 2 - 60, canvas.height / 2 - 40);
+      highScores.forEach((s, i) => {
+        ctx.fillText(`${i + 1}. ${s}`, canvas.width / 2 - 20, canvas.height / 2 + 20 + i * 20);
+      });
+      ctx.fillText("Press 'A' to restart", canvas.width / 2 - 80, canvas.height - 30);
+    }
+
+    function resetGame() {
+      bullets = [];
+      enemies = [];
+      trees = createTrees();
+      grass = createGrass();
+      clouds = createClouds();
+      explosions = [];
+      score = 0;
+      passedEnemies = 0;
+      gameOver = false;
+      paused = false;
+      victory = false;
+      startTime = Date.now();
+      helicopter.x = 0;
+      backgroundHelicopters[0].x = 300;
+      backgroundHelicopters[1].x = 600;
+      commando.health = commando.maxHealth;
+      rankPromotions.forEach(promo => {
+        promo.time = null;
+        promo.displayed = false;
+      });
+      rain = { active: false, startTime: null, duration: 0, drops: [], nextRain: Date.now() + 20000 };
+      gameLoop();
+    }
+
+    function loadHighScores() {
+      try {
+        const stored = localStorage.getItem("highScores");
+        if (stored) highScores = JSON.parse(stored);
+      } catch (e) {
+        console.warn("Cannot load high scores from localStorage:", e);
+        highScores = [];
+      }
+    }
+
+    function update() {
+      if (gameOver || paused) return;
+
+      if (keys["ArrowLeft"]) {
+        commando.x = Math.max(0, commando.x - commando.dx);
+        commando.direction = "left";
+      }
+      if (keys["ArrowRight"]) {
+        commando.x = Math.min(canvas.width - commando.width, commando.x + commando.dx);
+        commando.direction = "right";
+      }
+
+      helicopter.x += helicopter.dx;
+      if (helicopter.x > canvas.width) helicopter.x = -helicopter.width;
+      else if (helicopter.x + helicopter.width < 0) helicopter.x = canvas.width;
+
+      backgroundHelicopters.forEach(heli => {
+        heli.x += heli.dx;
+        if (heli.x > canvas.width) heli.x = -heli.width;
+        else if (heli.x + heli.width < 0) heli.x = canvas.width;
+      });
+
+      bullets = bullets.filter(b => b.x >= 0 && b.x <= canvas.width);
+      bullets.forEach(b => b.x += b.speed);
+
+      if (Math.random() < 0.02) {
+        enemies.push({
+          x: helicopter.x + helicopter.width / 2,
+          y: helicopter.y + helicopter.height,
+          width: 10,
+          height: 30,
+          dy: 3,
+          grounded: false,
+          speed: Math.random() > 0.5 ? -2 : 2
+        });
+      }
+
+      enemies = enemies.filter(e => e.x >= 0 && e.x <= canvas.width);
+      enemies.forEach(e => {
+        if (!e.grounded) {
+          e.y += e.dy;
+          e.x += Math.sin(Date.now() * 0.005) * 0.5;
+          if (e.y >= groundY - e.height) {
+            e.y = groundY - e.height;
+            e.grounded = true;
+          }
+        } else {
+          e.x += e.speed;
+          if ((e.speed > 0 && e.x > canvas.width) || (e.speed < 0 && e.x < 0)) {
+            passedEnemies++;
+            if (passedEnemies >= 10) gameOver = true;
+          }
+        }
+      });
+
+      bullets.forEach((b, bi) => {
+        enemies.forEach((e, ei) => {
+          if (
+            b.x < e.x + e.width &&
+            b.x + b.width > e.x &&
+            b.y < e.y + e.height &&
+            b.y + b.height > e.y
+          ) {
+            explosions.push({ x: e.x, y: e.y, time: Date.now() });
+            enemies.splice(ei, 1);
+            bullets.splice(bi, 1);
+            score += 10;
+            if (score >= 1500) {
+              gameOver = true;
+              victory = true;
+            }
+          }
+        });
+      });
+
+      enemies.forEach((e, ei) => {
+        if (
+          commando.x < e.x + e.width &&
+          commando.x + commando.width > e.x &&
+          commando.y < e.y + e.height &&
+          commando.y + commando.height > e.y
+        ) {
+          commando.health--;
+          enemies.splice(ei, 1);
+          if (commando.health <= 0) gameOver = true;
+        }
+      });
+
+      trees.forEach(t => {
+        t.x -= 0.5;
+        if (t.x < -30) t.x += canvas.width + 50;
+      });
+
+      grass.forEach(g => {
+        g.x -= 0.5;
+        if (g.x < -10) g.x += canvas.width + 10;
+      });
+
+      if (rain.active) {
+        rain.drops.forEach(drop => {
+          drop.x -= drop.speed * 0.7;
+          drop.y += drop.speed * 0.7;
+          if (drop.y > canvas.height || drop.x < 0) {
+            drop.x = Math.random() * canvas.width;
+            drop.y = -Math.random() * canvas.height;
+          }
+        });
+        if (Date.now() - rain.startTime > rain.duration) {
+          rain.active = false;
+          rain.nextRain = Date.now() + 20000 + Math.random() * 20000;
+        }
+      } else if (Date.now() > rain.nextRain) {
+        rain.active = true;
+        rain.startTime = Date.now();
+        rain.duration = 20000 + Math.random() * 5000;
+        rain.drops = createRain();
+      }
+    }
+
+    function gameLoop() {
+      try {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (paused) {
+          drawSky();
+          drawRain();
+          drawGround();
+          drawTrees();
+          backgroundHelicopters.forEach(heli => drawHelicopter(heli, heli.scale));
+          drawCommando();
+          drawHelicopter(helicopter);
+          drawEnemies();
+          drawBullets();
+          drawExplosions();
+          drawScore();
+          drawPaused();
+          if (!gameOver) requestAnimationFrame(gameLoop);
+          return;
+        }
+
+        drawSky();
+        drawRain();
+        drawGround();
+        drawTrees();
+        backgroundHelicopters.forEach(heli => drawHelicopter(heli, heli.scale));
+        drawCommando();
+        drawHelicopter(helicopter);
+        drawEnemies();
+        drawBullets();
+        drawExplosions();
+        drawScore();
+        drawRankPromotions();
+        drawInstructions();
+        update();
+
+        if (!gameOver) requestAnimationFrame(gameLoop);
+        else drawHighScores();
+      } catch (error) {
+        console.error("Error in gameLoop:", error);
+      }
+    }
+
+    try {
+      trees = createTrees();
+      grass = createGrass();
+      loadHighScores();
+      console.log("Game initialized, starting gameLoop");
+      gameLoop();
+    } catch (error) {
+      console.error("Initialization error:", error);
+    }
+  </script>
+</body>
+</html>
